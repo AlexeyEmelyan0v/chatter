@@ -2,9 +2,37 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <cerrno>
 #include <cstdio>
 #include <iostream>
 #include <string>
+
+bool send_all(int socket_fd, const char* data, size_t size) {
+  size_t total_sent = 0;
+
+  while (total_sent < size) {
+    ssize_t sent = send(socket_fd, data + total_sent, size - total_sent, MSG_NOSIGNAL);
+
+    if (sent == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
+
+      std::perror("send");
+      return false;
+    }
+
+    if (sent == 0) {
+      std::cerr << "Не удалось продолжить отправку\n";
+      return false;
+    }
+
+    total_sent += static_cast<size_t>(sent);
+  }
+
+  return true;
+}
 
 int main() {
   int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -14,7 +42,7 @@ int main() {
     return 1;
   }
 
-  sockaddr_in address{};
+  sockaddr_in address = sockaddr_in();
   address.sin_family = AF_INET;
   address.sin_port = htons(5000);
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -27,7 +55,7 @@ int main() {
 
   std::cout << "Подключено к серверу 127.0.0.1:5000\n";
 
-  std::cout << "Введите сообщение(максимум 1024 символа): ";
+  std::cout << "Введите сообщение: ";
   std::string message;
   std::getline(std::cin, message);
 
@@ -36,37 +64,53 @@ int main() {
     return 0;
   }
 
-  ssize_t sent = send(socket_fd, message.data(), message.size(), MSG_NOSIGNAL);
-
-  if (sent == -1) {
-    std::perror("send");
-    close(socket_fd);
-    return 1;
-  }
-
-  if (static_cast<size_t>(sent) != message.size()) {
-    std::cerr << "Отправлена только часть сообщения\n";
-    close(socket_fd);
-    return 1;
-  }
-
   char buffer[1024];
-  ssize_t received = recv(socket_fd, buffer, sizeof(buffer), 0);
+  size_t offset = 0;
+  int result = 0;
 
-  if (received == -1) {
-    std::perror("recv");
-    close(socket_fd);
-    return 1;
-  }
+  while (offset < message.size()) {
+    size_t chunk_size = std::min(sizeof(buffer), message.size() - offset);
 
-  if (received > 0) {
-    std::cout << "Ответ сервера: ";
-    std::cout.write(buffer, received);
-    std::cout << '\n';
-  } else {
-    std::cout << "Сервер закрыл соединение\n";
+    if (!send_all(socket_fd, message.data() + offset, chunk_size)) {
+      result = 1;
+      break;
+    }
+
+    size_t total_received = 0;
+
+    while (total_received < chunk_size) {
+      ssize_t received = recv(socket_fd, buffer, chunk_size - total_received, 0);
+
+      if (received == -1) {
+        if (errno == EINTR) {
+          continue;
+        }
+
+        std::perror("recv");
+        result = 1;
+        break;
+      }
+
+      if (received == 0) {
+        std::cerr << "\nСервер закрыл соединение до полного ответа\n";
+        result = 1;
+        break;
+      }
+
+      std::cout << "Получено: ";
+      std::cout.write(buffer, received);
+      std::cout << std::endl;
+
+      total_received += static_cast<size_t>(received);
+    }
+
+    if (result != 0) {
+      break;
+    }
+
+    offset += chunk_size;
   }
 
   close(socket_fd);
-  return 0;
+  return result;
 }

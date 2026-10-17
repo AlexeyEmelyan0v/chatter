@@ -6,6 +6,32 @@
 #include <cstdio>
 #include <iostream>
 
+bool send_all(int socket_fd, const char* data, size_t size) {
+  size_t total_sent = 0;
+
+  while (total_sent < size) {
+    ssize_t sent = send(socket_fd, data + total_sent, size - total_sent, MSG_NOSIGNAL);
+
+    if (sent == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
+
+      std::perror("send");
+      return false;
+    }
+
+    if (sent == 0) {
+      std::cerr << "Не удалось продолжить отправку\n";
+      return false;
+    }
+
+    total_sent += static_cast<size_t>(sent);
+  }
+
+  return true;
+}
+
 int main() {
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -44,28 +70,34 @@ int main() {
   std::cout << "Клиент подключился" << std::endl;
 
   char buffer[1024];
-  ssize_t received = recv(client_fd, buffer, sizeof(buffer), 0);
   int result = 0;
 
-  if (received > 0) {
+  while (true) {
+    ssize_t received = recv(client_fd, buffer, sizeof(buffer), 0);
+
+    if (received == 0) {
+      std::cout << "Клиент завершил отправку\n";
+      break;
+    }
+
+    if (received == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
+
+      std::perror("recv");
+      result = 1;
+      break;
+    }
+
     std::cout << "Получено: ";
     std::cout.write(buffer, received);
     std::cout << std::endl;
 
-    ssize_t sent = send(client_fd, buffer, received, MSG_NOSIGNAL);
-
-    if (sent == -1) {
-      std::perror("send");
+    if (!send_all(client_fd, buffer, static_cast<size_t>(received))) {
       result = 1;
-    } else if (sent != received) {
-      std::cout << "Отправлена часть данных\n";
-      result = 1;
+      break;
     }
-  } else if (received == 0) {
-    std::cout << "Клиент завершил отправку\n";
-  } else {
-    std::perror("recv");
-    result = 1;
   }
 
   close(client_fd);
