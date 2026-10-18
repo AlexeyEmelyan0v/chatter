@@ -8,6 +8,8 @@
 #include <iostream>
 #include <string>
 
+constexpr size_t BUFFER_SIZE = 1024;
+
 bool send_all(int socket_fd, const char* data, size_t size) {
   size_t total_sent = 0;
 
@@ -64,12 +66,12 @@ int main() {
     return 0;
   }
 
-  char buffer[1024];
+  char buffer[BUFFER_SIZE];
   size_t offset = 0;
   int result = 0;
 
   while (offset < message.size()) {
-    size_t chunk_size = std::min(sizeof(buffer), message.size() - offset);
+    size_t chunk_size = std::min(BUFFER_SIZE, message.size() - offset);
 
     if (!send_all(socket_fd, message.data() + offset, chunk_size)) {
       result = 1;

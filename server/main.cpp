@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <iostream>
 
+constexpr size_t BUFFER_SIZE = 1024;
+
 bool send_all(int socket_fd, const char* data, size_t size) {
   size_t total_sent = 0;
 
@@ -69,11 +71,11 @@ int main() {
 
   std::cout << "Клиент подключился" << std::endl;
 
-  char buffer[1024];
+  char buffer[BUFFER_SIZE];
   int result = 0;
 
   while (true) {
-    ssize_t received = recv(client_fd, buffer, sizeof(buffer), 0);
+    ssize_t received = recv(client_fd, buffer, BUFFER_SIZE, 0);
 
     if (received == 0) {
       std::cout << "Клиент завершил отправку\n";
