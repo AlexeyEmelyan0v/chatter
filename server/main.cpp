@@ -34,6 +34,40 @@ bool send_all(int socket_fd, const char* data, size_t size) {
   return true;
 }
 
+void handle_client(int client_fd) {
+  std::cout << "Клиент подключился" << std::endl;
+
+  char buffer[BUFFER_SIZE];
+
+  while (true) {
+    ssize_t received = recv(client_fd, buffer, BUFFER_SIZE, 0);
+
+    if (received == 0) {
+      std::cout << "Клиент завершил отправку\n";
+      break;
+    }
+
+    if (received == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
+
+      std::perror("recv");
+      break;
+    }
+
+    std::cout << "Получено: ";
+    std::cout.write(buffer, received);
+    std::cout << std::endl;
+
+    if (!send_all(client_fd, buffer, static_cast<size_t>(received))) {
+      break;
+    }
+  }
+
+  close(client_fd);
+}
+
 int main() {
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -74,37 +108,7 @@ int main() {
       return 1;
     }
 
-    std::cout << "Клиент подключился" << std::endl;
-
-    char buffer[BUFFER_SIZE];
-
-    while (true) {
-      ssize_t received = recv(client_fd, buffer, BUFFER_SIZE, 0);
-
-      if (received == 0) {
-        std::cout << "Клиент завершил отправку\n";
-        break;
-      }
-
-      if (received == -1) {
-        if (errno == EINTR) {
-          continue;
-        }
-
-        std::perror("recv");
-        break;
-      }
-
-      std::cout << "Получено: ";
-      std::cout.write(buffer, received);
-      std::cout << std::endl;
-
-      if (!send_all(client_fd, buffer, static_cast<size_t>(received))) {
-        break;
-      }
-    }
-
-    close(client_fd);
+    handle_client(client_fd);
   }
 
   close(server_fd);
