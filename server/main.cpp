@@ -59,51 +59,54 @@ int main() {
     return 1;
   }
 
-  std::cout << "Ожидание клиента на 127.0.0.1:5000...\n";
-
-  int client_fd = accept(server_fd, nullptr, nullptr);
-
-  if (client_fd == -1) {
-    std::perror("accept");
-    close(server_fd);
-    return 1;
-  }
-
-  std::cout << "Клиент подключился" << std::endl;
-
-  char buffer[BUFFER_SIZE];
-  int result = 0;
-
   while (true) {
-    ssize_t received = recv(client_fd, buffer, BUFFER_SIZE, 0);
+    std::cout << "Ожидание клиента на 127.0.0.1:5000..." << std::endl;
 
-    if (received == 0) {
-      std::cout << "Клиент завершил отправку\n";
-      break;
-    }
+    int client_fd = accept(server_fd, nullptr, nullptr);
 
-    if (received == -1) {
+    if (client_fd == -1) {
       if (errno == EINTR) {
         continue;
       }
 
-      std::perror("recv");
-      result = 1;
-      break;
+      std::perror("accept");
+      close(server_fd);
+      return 1;
     }
 
-    std::cout << "Получено: ";
-    std::cout.write(buffer, received);
-    std::cout << std::endl;
+    std::cout << "Клиент подключился" << std::endl;
 
-    if (!send_all(client_fd, buffer, static_cast<size_t>(received))) {
-      result = 1;
-      break;
+    char buffer[BUFFER_SIZE];
+
+    while (true) {
+      ssize_t received = recv(client_fd, buffer, BUFFER_SIZE, 0);
+
+      if (received == 0) {
+        std::cout << "Клиент завершил отправку\n";
+        break;
+      }
+
+      if (received == -1) {
+        if (errno == EINTR) {
+          continue;
+        }
+
+        std::perror("recv");
+        break;
+      }
+
+      std::cout << "Получено: ";
+      std::cout.write(buffer, received);
+      std::cout << std::endl;
+
+      if (!send_all(client_fd, buffer, static_cast<size_t>(received))) {
+        break;
+      }
     }
+
+    close(client_fd);
   }
 
-  close(client_fd);
   close(server_fd);
-
-  return result;
+  return 0;
 }
