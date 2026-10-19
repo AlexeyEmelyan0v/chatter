@@ -9,35 +9,33 @@
 
 #include "../common/protocol.hpp"
 
-constexpr size_t BUFFER_SIZE = 1024;
-
 void handle_client(int client_fd) {
   std::cout << "Клиент подключился" << std::endl;
 
-  char buffer[BUFFER_SIZE];
-
   while (true) {
-    ssize_t received = recv(client_fd, buffer, BUFFER_SIZE, 0);
+    std::string message;
+    ReceiveResult result = receive_message(client_fd, message);
 
-    if (received == 0) {
+    if (result == ReceiveResult::closed) {
       std::cout << "Клиент завершил отправку\n";
       break;
     }
 
-    if (received == -1) {
-      if (errno == EINTR) {
-        continue;
+    if (result != ReceiveResult::success) {
+      if (result == ReceiveResult::closed) {
+        std::cout << "Клиент завершил отправку\n";
+      } else if (result == ReceiveResult::too_large) {
+        std::cerr << "Сообщение слишком большое\n";
+      } else if (result == ReceiveResult::incomplete) {
+        std::cerr << "Сообщение получено не полностью\n";
       }
 
-      std::perror("recv");
       break;
     }
 
-    std::cout << "Получено: ";
-    std::cout.write(buffer, received);
-    std::cout << std::endl;
+    std::cout << "Получено: " << message << std::endl;
 
-    if (!send_all(client_fd, buffer, static_cast<size_t>(received))) {
+    if (!send_message(client_fd, message)) {
       break;
     }
   }
@@ -46,6 +44,7 @@ void handle_client(int client_fd) {
 }
 
 int main() {
+  std::cout << SOMAXCONN << '\n';
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
   if (server_fd == -1) {
