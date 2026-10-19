@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <iostream>
+#include <thread>
 
 constexpr size_t BUFFER_SIZE = 1024;
 
@@ -108,7 +109,13 @@ int main() {
       return 1;
     }
 
-    handle_client(client_fd);
+    try {
+      std::thread t(handle_client, client_fd);
+      t.detach();
+    } catch (const std::system_error& error) {
+      std::cerr << "Не удалось запустить поток: " << error.what() << '\n';
+      close(client_fd);
+    }
   }
 
   close(server_fd);
