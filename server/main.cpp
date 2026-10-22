@@ -9,6 +9,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <utility>
 
 #include "client_session.hpp"
 
@@ -40,9 +41,9 @@ void handle_client(std::shared_ptr<ClientSession> client) {
 }
 
 int main() {
-  int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+  Socket server_socket(socket(AF_INET, SOCK_STREAM, 0));
 
-  if (server_fd == -1) {
+  if (server_socket.get() == -1) {
     std::perror("socket");
     return 1;
   }
@@ -52,35 +53,32 @@ int main() {
   address.sin_port = htons(5000);
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-  if (bind(server_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == -1) {
+  if (bind(server_socket.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address)) == -1) {
     std::perror("bind");
-    close(server_fd);
     return 1;
   }
 
-  if (listen(server_fd, 1) == -1) {
+  if (listen(server_socket.get(), 1) == -1) {
     std::perror("listen");
-    close(server_fd);
     return 1;
   }
 
   while (true) {
     std::cout << "Ожидание клиента на 127.0.0.1:5000..." << std::endl;
 
-    int client_fd = accept(server_fd, nullptr, nullptr);
+    Socket client_socket(accept(server_socket.get(), nullptr, nullptr));
 
-    if (client_fd == -1) {
+    if (client_socket.get() == -1) {
       if (errno == EINTR) {
         continue;
       }
 
       std::perror("accept");
-      close(server_fd);
       return 1;
     }
 
     try {
-      auto session = std::make_shared<ClientSession>(Socket(client_fd));
+      auto session = std::make_shared<ClientSession>(std::move(client_socket));
       std::thread t(handle_client, session);
       t.detach();
     } catch (const std::system_error& error) {
@@ -88,6 +86,5 @@ int main() {
     }
   }
 
-  close(server_fd);
   return 0;
 }
