@@ -5,21 +5,19 @@
 #include <cerrno>
 #include <cstdio>
 #include <iostream>
+#include <memory>
+#include <string>
+#include <system_error>
 #include <thread>
 
-#include "../common/protocol.hpp"
+#include "client_session.hpp"
 
-void handle_client(int client_fd) {
+void handle_client(std::shared_ptr<ClientSession> client) {
   std::cout << "Клиент подключился" << std::endl;
 
   while (true) {
     std::string message;
-    ReceiveResult result = receive_message(client_fd, message);
-
-    if (result == ReceiveResult::closed) {
-      std::cout << "Клиент завершил отправку\n";
-      break;
-    }
+    ReceiveResult result = client->receive(message);
 
     if (result != ReceiveResult::success) {
       if (result == ReceiveResult::closed) {
@@ -35,16 +33,13 @@ void handle_client(int client_fd) {
 
     std::cout << "Получено: " << message << std::endl;
 
-    if (!send_message(client_fd, message)) {
+    if (!client->send(message)) {
       break;
     }
   }
-
-  close(client_fd);
 }
 
 int main() {
-  std::cout << SOMAXCONN << '\n';
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
   if (server_fd == -1) {
@@ -85,11 +80,11 @@ int main() {
     }
 
     try {
-      std::thread t(handle_client, client_fd);
+      auto session = std::make_shared<ClientSession>(Socket(client_fd));
+      std::thread t(handle_client, session);
       t.detach();
     } catch (const std::system_error& error) {
       std::cerr << "Не удалось запустить поток: " << error.what() << '\n';
-      close(client_fd);
     }
   }
 
