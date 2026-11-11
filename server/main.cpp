@@ -1,24 +1,30 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
-#include <unistd.h>
 
 #include <cerrno>
+#include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <system_error>
 #include <thread>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "client_session.hpp"
 
-void handle_client(std::shared_ptr<ClientSession> client) {
+void handle_client(std::shared_ptr<ClientSession> session, std::uint64_t client_id,
+                   std::unordered_map<std::uint64_t, std::shared_ptr<ClientSession>>& sessions,
+                   std::mutex& sessions_mutex) {
   std::cout << "Клиент подключился" << std::endl;
 
   while (true) {
     std::string message;
-    ReceiveResult result = client->receive(message);
+    ReceiveResult result = session->receive(message);
 
     if (result != ReceiveResult::success) {
       if (result == ReceiveResult::closed) {
@@ -34,9 +40,14 @@ void handle_client(std::shared_ptr<ClientSession> client) {
 
     std::cout << "Получено: " << message << std::endl;
 
-    if (!client->send(message)) {
+    if (!session->send(message)) {
       break;
     }
+  }
+
+  {
+    std::lock_guard lock(sessions_mutex);
+    sessions.erase(client_id);
   }
 }
 
@@ -63,6 +74,11 @@ int main() {
     return 1;
   }
 
+  std::vector<std::thread> workers;
+  std::unordered_map<std::uint64_t, std::shared_ptr<ClientSession>> sessions;
+  std::mutex sessions_mutex;
+  std::uint64_t next_id = 1;
+
   while (true) {
     std::cout << "Ожидание клиента на 127.0.0.1:5000..." << std::endl;
 
@@ -74,16 +90,40 @@ int main() {
       }
 
       std::perror("accept");
-      return 1;
+      break;
     }
+
+    const std::uint64_t client_id = next_id++;
 
     try {
       auto session = std::make_shared<ClientSession>(std::move(client_socket));
-      std::thread t(handle_client, session);
-      t.detach();
+
+      {
+        std::lock_guard lock(sessions_mutex);
+        sessions.emplace(client_id, session);
+      }
+
+      workers.emplace_back(handle_client, session, client_id, std::ref(sessions), std::ref(sessions_mutex));
     } catch (const std::system_error& error) {
+      {
+        std::lock_guard lock(sessions_mutex);
+        sessions.erase(client_id);
+      }
+
       std::cerr << "Не удалось запустить поток: " << error.what() << '\n';
     }
+  }
+
+  {
+    std::lock_guard lock(sessions_mutex);
+
+    for (const auto& [id, session] : sessions) {
+      session->shutdown();
+    }
+  }
+
+  for (auto& worker : workers) {
+    worker.join();
   }
 
   return 0;
